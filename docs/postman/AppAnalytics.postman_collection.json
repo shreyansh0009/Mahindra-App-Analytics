@@ -1,0 +1,1316 @@
+{
+  "info": {
+    "_postman_id": "9f0a1b2c-aaaa-4bbb-8ccc-appanalyticscol",
+    "name": "App Analytics – Mobile Ingestion API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "# App Analytics – Mobile Ingestion API\n\nOfficial API reference for the **React Native analytics SDK**. Every request the mobile app must make to report analytics is documented here.\n\n## Base URL\nAll endpoints are mounted under `/api/v1`.\n\n```\n{{base_url}} = https://mahindraappanalytics.crmlvoice.com/api/v1\n```\n\n## Authentication\n**There is currently NO authentication on these endpoints.** They are protected only by rate limiting. The `{{jwt_token}}` environment variable and the optional `Authorization: Bearer {{jwt_token}}` header are included for forward-compatibility — the backend ignores them today. Do **not** block SDK integration waiting for auth.\n\n## Response envelope\nEvery response uses a consistent shape.\n\n**Success**\n```json\n{ \"success\": true, \"data\": { } }\n```\n\n**Error**\n```json\n{ \"success\": false, \"error\": { \"code\": \"VALIDATION_ERROR\", \"message\": \"...\" } }\n```\n\n## How analytics map to endpoints\nThe backend exposes only **6 real endpoints**. Conceptual mobile events map onto them:\n\n| Mobile concept | Real call |\n|---|---|\n| Identify / register user | `POST /ingest/identify` |\n| Session start (carries device info) | `POST /ingest/session/start` |\n| Session end | `POST /ingest/session/end` |\n| Screen view (with dwell time) | `POST /ingest/screen` |\n| App open / close, login/logout, button click, feature usage, **API call / performance**, **crash**, **error** | `POST /ingest/events` (batch) |\n| Health probe | `GET /health` |\n\n> **Device information** is sent as fields on `session/start` (platform, appVersion, osVersion, deviceModel, networkType, location). There is no separate `/device` endpoint.\n>\n> **Crash logs & performance timings** are sent as items in the `POST /ingest/events` batch using `eventType` = `crash` / `app_startup` / `api_call` / `error`, plus an optional `metrics` object.\n\n## Event batching\n`POST /ingest/events` accepts an array of **1–50 events**. The SDK should buffer events client-side and flush them in batches. Each event needs a **client-generated unique `eventId`** (a UUID) — duplicate `eventId`s are silently skipped, making retries safe.\n\n## Idempotency & duplicates\n- `session/start` is idempotent per `sessionId` (returns the existing session).\n- `events` de-duplicates on `eventId` (safe to retry a batch).\n- `identify` is an upsert on `userId`.\n\n## Rate limiting\nIngestion endpoints are limited to **200 requests / minute** (per IP, configurable). Exceeding it returns `429 RATE_LIMIT_EXCEEDED`. Batch your events to stay well under this.\n\n## Timestamps\nAll timestamps are **ISO-8601 UTC** strings, e.g. `2026-07-07T10:20:30Z`. If omitted, the server stamps `now`.",
+    "variable": [
+      {
+        "key": "base_url",
+        "value": "https://mahindraappanalytics.crmlvoice.com/api/v1"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "description": "Liveness probe. Use to verify connectivity before the SDK starts flushing events.",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "**Why:** Confirms the analytics backend is reachable.\n\n**When to call:** Optionally on app start / before first flush, or in a debug screen.\n\n**Auth:** None.\n\n**Mandatory fields:** none.  **Optional fields:** none.\n\n**Duplicates:** Always safe.\n\n**Status codes:** `200 OK`.\n"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/health",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "health"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": \"ok\",\n    \"timestamp\": \"2026-07-07T10:20:30.000Z\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "User Identity",
+      "description": "Create / update the mobile user profile. Upsert keyed on `userId`.",
+      "item": [
+        {
+          "name": "Identify / Register User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/identify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "identify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"userId\": \"{{user_id}}\",\n  \"name\": \"Ramesh Patel\",\n  \"email\": \"ramesh.patel@example.com\",\n  \"platform\": \"{{platform}}\",\n  \"zone\": \"North\",\n  \"state\": \"Delhi\",\n  \"ao\": \"AO North 1\",\n  \"dealer\": \"Delhi Motors\",\n  \"branch\": \"Delhi Central\",\n  \"tm\": \"Rahul Sharma\",\n  \"designation\": \"Salesman\",\n  \"mobile\": \"9999999999\",\n  \"doj\": \"2023-01-15\",\n  \"starId\": \"STAR100123\"\n}"
+            },
+            "description": "**Why:** Registers or updates the user profile so all downstream sessions/events attribute to a known user.\n\n**When to call:** On login / signup, and whenever the profile changes. Safe to call once per app launch after auth.\n\n**Auth:** None.\n\n**Request body**\n\n| Field | Type | Required | Notes |\n|---|---|---|---|\n| `userId` | string | ✅ | Stable unique id for the user. |\n| `name` | string | ⬜ | Display name. |\n| `email` | string | ⬜ | Must be a valid email if provided. |\n| `platform` | enum | ⬜ | `ios` \\| `android` \\| `web`. |\n\n**Duplicates:** Idempotent upsert on `userId`. First call sets `firstSeenAt`; later calls update `lastActiveAt`.\n\n**Expected response:** `200 OK` with the full user document.\n\n**Status codes:** `200`, `400 VALIDATION_ERROR`, `429`. Also accepts the org/geography hierarchy (zone/state/ao/dealer/branch/tm/designation/mobile/doj/starId) that powers the Geography and Dealer/AO/TM analytics dashboards — all optional, only the fields you send are updated."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/identify",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "identify"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"USR001\",\n  \"name\": \"Ramesh Patel\",\n  \"email\": \"ramesh.patel@example.com\",\n  \"platform\": \"android\"\n}"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"_id\": \"66a0f1c2e4b0a1234567890a\",\n    \"userId\": \"USR001\",\n    \"name\": \"Ramesh Patel\",\n    \"email\": \"ramesh.patel@example.com\",\n    \"platform\": \"android\",\n    \"firstSeenAt\": \"2026-07-07T10:20:30.000Z\",\n    \"lastActiveAt\": \"2026-07-07T10:20:30.000Z\",\n    \"totalSessions\": 0,\n    \"totalEvents\": 0,\n    \"totalScreenViews\": 0,\n    \"totalTimeSpent\": 0,\n    \"isActive\": true,\n    \"createdAt\": \"2026-07-07T10:20:30.000Z\",\n    \"updatedAt\": \"2026-07-07T10:20:30.000Z\"\n  }\n}"
+            },
+            {
+              "name": "400 Validation Error",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/identify",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "identify"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"not-an-email\"\n}"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"userId: userId is required; email: Invalid email\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Login (track activity)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"userId\": \"{{user_id}}\",\n  \"loginAt\": \"2026-07-07T10:20:30Z\"\n}"
+            },
+            "description": "**Why:** Records one login instance. Distinct calendar days (UTC) with a login drive the frequent (>20 days) / occasional (5–19) / low (1–4) / no-login (0) classification on the Geography and Dealer/AO/TM dashboards.\n\n**When to call:** Once per successful login (in addition to session/start, not instead of it).\n\n**Auth:** None.\n\n**Duplicates:** Safe to call multiple times per day — loginDays only increments the first time a given UTC day is seen; totalLogins increments every call.\n\n**Status codes:** 200, 400 VALIDATION_ERROR, 429."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/login",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"USR001\",\n  \"loginAt\": \"2026-07-07T10:20:30Z\"\n}"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"userId\": \"USR001\",\n    \"loginDays\": 12,\n    \"totalLogins\": 34,\n    \"lastLoginAt\": \"2026-07-07T10:20:30.000Z\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sessions",
+      "description": "App-session lifecycle. Device information is captured here on `start`.",
+      "item": [
+        {
+          "name": "Session Start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/session/start",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "session",
+                "start"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"userId\": \"{{user_id}}\",\n  \"startTime\": \"{{$isoTimestamp}}\",\n  \"platform\": \"{{platform}}\",\n  \"appVersion\": \"{{app_version}}\",\n  \"osVersion\": \"15\",\n  \"deviceModel\": \"Samsung Galaxy S24\",\n  \"networkType\": \"wifi\",\n  \"location\": {\n    \"country\": \"India\",\n    \"city\": \"Ahmedabad\",\n    \"lat\": 23.0225,\n    \"lng\": 72.5714\n  }\n}"
+            },
+            "description": "**Why:** Opens an analytics session and records the device/context it runs in. This is also where **device information** lives (no separate `/device` endpoint).\n\n**When to call:** On app foreground / cold start, once per session. Generate a fresh `sessionId` (UUID) each time.\n\n**Auth:** None.\n\n**Request body**\n\n| Field | Type | Required | Notes |\n|---|---|---|---|\n| `sessionId` | string | ✅ | Client-generated unique id. |\n| `userId` | string | ✅ | Owner of the session. |\n| `startTime` | ISO-8601 | ⬜ | Defaults to server `now`. |\n| `platform` | enum | ⬜ | `ios` \\| `android` \\| `web`. |\n| `appVersion` | string | ⬜ | e.g. `2.4.0`. |\n| `osVersion` | string | ⬜ | OS version. |\n| `deviceModel` | string | ⬜ | e.g. `Samsung Galaxy S24`. |\n| `networkType` | enum | ⬜ | `wifi` \\| `cellular` \\| `offline` \\| `unknown`. |\n| `location` | object | ⬜ | `{ country, city, lat, lng }`. |\n\n**Duplicates:** Idempotent — a repeated `sessionId` returns the existing session (`201`), never a duplicate.\n\n**Expected response:** `201 Created` with the session document.\n\n**Status codes:** `201`, `400 VALIDATION_ERROR`, `429`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/session/start",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "session",
+                    "start"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ }"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"_id\": \"66a0f1c2e4b0a1234567891b\",\n    \"sessionId\": \"SES-20260707-0001\",\n    \"userId\": \"USR001\",\n    \"startTime\": \"2026-07-07T10:20:30.000Z\",\n    \"platform\": \"android\",\n    \"appVersion\": \"2.4.0\",\n    \"osVersion\": \"15\",\n    \"deviceModel\": \"Samsung Galaxy S24\",\n    \"networkType\": \"wifi\",\n    \"location\": { \"country\": \"India\", \"city\": \"Ahmedabad\", \"lat\": 23.0225, \"lng\": 72.5714 },\n    \"isActive\": true,\n    \"eventCount\": 0,\n    \"screensVisited\": [],\n    \"duration\": 0\n  }\n}"
+            },
+            {
+              "name": "400 Validation Error",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/session/start",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "session",
+                    "start"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"USR001\"\n}"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"sessionId: sessionId is required\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Session End",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/session/end",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "session",
+                "end"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"userId\": \"{{user_id}}\",\n  \"endTime\": \"{{$isoTimestamp}}\"\n}"
+            },
+            "description": "**Why:** Closes the session and lets the server compute its duration (`endTime - startTime`).\n\n**When to call:** On app background / termination, once per session.\n\n**Auth:** None.\n\n**Request body**\n\n| Field | Type | Required | Notes |\n|---|---|---|---|\n| `sessionId` | string | ✅ | The session being closed. |\n| `userId` | string | ✅ | Owner. |\n| `endTime` | ISO-8601 | ⬜ | Defaults to server `now`. |\n\n**Duplicates:** Safe. If the `sessionId` is unknown the response is `200` with `data: null`.\n\n**Expected response:** `200 OK` with `{ sessionId, duration }` (duration in ms).\n\n**Status codes:** `200`, `400 VALIDATION_ERROR`, `429`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/session/end",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "session",
+                    "end"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ }"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"sessionId\": \"SES-20260707-0001\",\n    \"duration\": 265000\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Screen Tracking",
+      "description": "Per-screen dwell tracking, denormalized for fast screen analytics.",
+      "item": [
+        {
+          "name": "Screen View",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/screen",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "screen"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"userId\": \"{{user_id}}\",\n  \"screenName\": \"HomeScreen\",\n  \"entryTime\": \"2026-07-07T10:21:10Z\",\n  \"exitTime\": \"2026-07-07T10:24:55Z\",\n  \"duration\": 225000\n}"
+            },
+            "description": "**Why:** Records a screen visit with dwell time. Powers Top Screens, avg time on screen, and funnel analytics.\n\n**When to call:** When the user **leaves** a screen (so you know the dwell), send the entry/exit pair. Alternatively send on entry and patch later — the SDK's choice; the simplest reliable pattern is to record on exit.\n\n> ⚠️ **Field names:** the backend uses `entryTime` / `exitTime` / `duration` (ms) — **not** `enteredAt` / `leftAt` / `timeSpent`.\n\n**Auth:** None.\n\n**Request body**\n\n| Field | Type | Required | Notes |\n|---|---|---|---|\n| `sessionId` | string | ✅ | Session the visit belongs to. |\n| `userId` | string | ✅ | User. |\n| `screenName` | string | ✅ | Route/screen identifier, e.g. `HomeScreen`. |\n| `entryTime` | ISO-8601 | ⬜ | Defaults to `now`. |\n| `exitTime` | ISO-8601 | ⬜ | When the user left. |\n| `duration` | integer (ms) | ⬜ | Dwell in ms; if omitted, computed from entry/exit. |\n\n**Duplicates:** Each call creates a new visit row — do **not** resend the same visit.\n\n**Expected response:** `201 Created` with the screen-visit document.\n\n**Status codes:** `201`, `400 VALIDATION_ERROR`, `429`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/screen",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "screen"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ }"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"_id\": \"66a0f1c2e4b0a1234567892c\",\n    \"sessionId\": \"SES-20260707-0001\",\n    \"userId\": \"USR001\",\n    \"screenName\": \"HomeScreen\",\n    \"entryTime\": \"2026-07-07T10:21:10.000Z\",\n    \"exitTime\": \"2026-07-07T10:24:55.000Z\",\n    \"duration\": 225000,\n    \"date\": \"2026-07-07T00:00:00.000Z\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Event Tracking (Batch)",
+      "description": "All discrete analytics events flow through a single **batch** endpoint: `POST /ingest/events`.\n\nSend an array of **1–50** event objects. Each needs a **client-generated unique `eventId`** (UUID). Duplicate `eventId`s are skipped → retries are safe.\n\n**Common event fields**\n\n| Field | Type | Required | Notes |\n|---|---|---|---|\n| `eventId` | string | ✅ | Unique per event (UUID). |\n| `sessionId` | string | ✅ | Session it belongs to. |\n| `userId` | string | ✅ | User. |\n| `eventType` | enum | ✅ | `app_open`, `app_close`, `login`, `logout`, `screen_view`, `screen_exit`, `button_click`, `navigation`, `api_call`, `error`, `crash`, `app_startup`, `custom`. |\n| `eventName` | string | ✅ | Human-readable name. |\n| `screenName` | string | ⬜ | Screen context. |\n| `timestamp` | ISO-8601 | ⬜ | Defaults to `now`. |\n| `properties` | object | ⬜ | Arbitrary key/values. |\n| `duration` | number (ms) | ⬜ | For timed events. |\n| `errorMessage` | string | ⬜ | For `error` / `crash`. |\n| `apiEndpoint` | string | ⬜ | For `api_call`. |\n| `statusCode` | number | ⬜ | For `api_call`. |\n| `metrics` | object | ⬜ | Perf timings: `{ loadTimeMs, startupTimeMs, responseTimeMs }`. |\n\nEach request below shows the **exact single-event payload** for one conceptual event so the SDK can copy it. In production, buffer several and send them together (see *Batch – Multiple Events*).",
+      "item": [
+        {
+          "name": "App Open",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"app_open\",\n      \"eventName\": \"App Opened\",\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Marks the app entering the foreground.\n\n**When:** On app launch / resume, alongside `session/start`.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `timestamp`.\n\n**Duplicates:** De-duplicated on `eventId`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/events",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "events"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ }"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": { \"inserted\": 1, \"total\": 1 }\n}"
+            }
+          ]
+        },
+        {
+          "name": "App Close",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"app_close\",\n      \"eventName\": \"App Closed\",\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Marks the app entering background / termination.\n\n**When:** On app background, alongside `session/end`.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"login\",\n      \"eventName\": \"User Login\",\n      \"properties\": { \"method\": \"otp\" },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Records a successful login. (Profile creation itself is done via `POST /ingest/identify`.)\n\n**When:** After authentication succeeds.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `properties`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"logout\",\n      \"eventName\": \"User Logout\",\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Records a logout.\n\n**When:** When the user signs out.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Screen View Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"screen_view\",\n      \"eventName\": \"Screen Viewed\",\n      \"screenName\": \"HomeScreen\",\n      \"properties\": { \"previousScreen\": \"LoginScreen\" },\n      \"metrics\": { \"loadTimeMs\": 320 },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** A lightweight screen-view event (distinct from the richer dwell record at `POST /ingest/screen`). Include `metrics.loadTimeMs` to feed screen-load performance analytics.\n\n**When:** On screen focus. For dwell/time-on-screen analytics prefer `POST /ingest/screen`.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `screenName`, `properties`, `metrics.loadTimeMs`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Event Tracking (Button Click)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"button_click\",\n      \"eventName\": \"Book Now Clicked\",\n      \"screenName\": \"HomeScreen\",\n      \"properties\": { \"buttonName\": \"Book Now\", \"section\": \"hero\" },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Generic UI interaction tracking. Put interaction context in `properties`.\n\n**When:** On taps/clicks you want to measure.\n\n> Note: the backend has no `eventCategory` field — put category/section inside `properties`.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `screenName`, `properties`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Feature Usage (Custom)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"custom\",\n      \"eventName\": \"soil_report_generated\",\n      \"screenName\": \"SoilAnalysisScreen\",\n      \"properties\": { \"feature\": \"soil_report\", \"cropType\": \"wheat\" },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Track domain/feature usage that doesn't fit a standard type. Use `eventType: \"custom\"` and a descriptive `eventName`.\n\n**When:** Whenever a tracked feature is used.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `screenName`, `properties`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Enquiry Creation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"enquiry_creation\",\n      \"eventName\": \"Enquiry Created\",\n      \"screenName\": \"EnquiryFormScreen\",\n      \"properties\": {\n        \"enquiryId\": \"ENQ-4821\"\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feature Usage dashboard (Priority 3) — Enquiry Creation, tracked for both Salesman and Sales Manager/Coordinator roles (split by the designation set on /ingest/identify).\n\n**Mandatory:** eventId, sessionId, userId, eventType, eventName. **Optional:** screenName, properties, timestamp.\n\n**Response:** 201 → { inserted, total }."
+          },
+          "response": []
+        },
+        {
+          "name": "Enquiry Review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"enquiry_review\",\n      \"eventName\": \"Enquiry Reviewed\",\n      \"screenName\": \"EnquiryDetailScreen\",\n      \"properties\": {\n        \"enquiryId\": \"ENQ-4821\"\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feature Usage dashboard (Priority 3) — Enquiry Review, tracked for both Salesman and Sales Manager/Coordinator roles.\n\n**Mandatory:** eventId, sessionId, userId, eventType, eventName. **Optional:** screenName, properties, timestamp.\n\n**Response:** 201 → { inserted, total }."
+          },
+          "response": []
+        },
+        {
+          "name": "Enquiry Follow-up",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"enquiry_followup\",\n      \"eventName\": \"Enquiry Followed Up\",\n      \"screenName\": \"EnquiryDetailScreen\",\n      \"properties\": {\n        \"enquiryId\": \"ENQ-4821\"\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feature Usage dashboard (Priority 3) — Enquiry Follow-up, tracked for both Salesman and Sales Manager/Coordinator roles.\n\n**Mandatory:** eventId, sessionId, userId, eventType, eventName. **Optional:** screenName, properties, timestamp.\n\n**Response:** 201 → { inserted, total }."
+          },
+          "response": []
+        },
+        {
+          "name": "Product Guide (Salesman)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"product_guide\",\n      \"eventName\": \"Product Guide Viewed\",\n      \"screenName\": \"ProductGuideScreen\",\n      \"properties\": {\n        \"productId\": \"TR-450\"\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feature Usage dashboard (Priority 3) — Product Guide, tracked for the Salesman role group only.\n\n**Mandatory:** eventId, sessionId, userId, eventType, eventName. **Optional:** screenName, properties, timestamp.\n\n**Response:** 201 → { inserted, total }."
+          },
+          "response": []
+        },
+        {
+          "name": "Village Visit (Salesman)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"village_visit\",\n      \"eventName\": \"Village Visit Logged\",\n      \"screenName\": \"VillageVisitScreen\",\n      \"properties\": {\n        \"villageName\": \"Sanand\"\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feature Usage dashboard (Priority 3) — Village Visit, tracked for the Salesman role group only.\n\n**Mandatory:** eventId, sessionId, userId, eventType, eventName. **Optional:** screenName, properties, timestamp.\n\n**Response:** 201 → { inserted, total }."
+          },
+          "response": []
+        },
+        {
+          "name": "Booking (Sales Manager/Coordinator)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"booking\",\n      \"eventName\": \"Booking Created\",\n      \"screenName\": \"BookingScreen\",\n      \"properties\": {\n        \"bookingId\": \"BKG-1092\"\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feature Usage dashboard (Priority 3) — Booking, tracked for the Sales Manager/Coordinator role group only.\n\n**Mandatory:** eventId, sessionId, userId, eventType, eventName. **Optional:** screenName, properties, timestamp.\n\n**Response:** 201 → { inserted, total }."
+          },
+          "response": []
+        },
+        {
+          "name": "Delivery (Sales Manager/Coordinator)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"delivery\",\n      \"eventName\": \"Delivery Recorded\",\n      \"screenName\": \"DeliveryScreen\",\n      \"properties\": {\n        \"deliveryId\": \"DLV-2044\"\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feature Usage dashboard (Priority 3) — Delivery, tracked for the Sales Manager/Coordinator role group only.\n\n**Mandatory:** eventId, sessionId, userId, eventType, eventName. **Optional:** screenName, properties, timestamp.\n\n**Response:** 201 → { inserted, total }."
+          },
+          "response": []
+        },
+        {
+          "name": "Performance (API Call)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"api_call\",\n      \"eventName\": \"GET /market-prices\",\n      \"apiEndpoint\": \"/api/market-prices\",\n      \"statusCode\": 200,\n      \"duration\": 480,\n      \"metrics\": { \"responseTimeMs\": 480 },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feeds API-response-time performance analytics. Populate `metrics.responseTimeMs` (and `apiEndpoint`/`statusCode`).\n\n**When:** After each network call you want to measure.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `apiEndpoint`, `statusCode`, `duration`, `metrics.responseTimeMs`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Performance (App Startup)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"app_startup\",\n      \"eventName\": \"Cold Start\",\n      \"metrics\": { \"startupTimeMs\": 1450 },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Feeds app-startup-time performance analytics via `metrics.startupTimeMs`.\n\n**When:** Once per cold/warm start, after first frame is interactive.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `metrics.startupTimeMs`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Crash Log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"crash\",\n      \"eventName\": \"Unhandled Exception\",\n      \"screenName\": \"PaymentScreen\",\n      \"errorMessage\": \"TypeError: undefined is not an object (evaluating 'order.total')\",\n      \"properties\": {\n        \"appVersion\": \"2.4.0\",\n        \"deviceModel\": \"Samsung Galaxy S24\",\n        \"stackTrace\": \"at PaymentScreen.render (PaymentScreen.js:88)\\n at ...\",\n        \"fatal\": true\n      },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Records a crash for crash-count and crash-free-rate analytics.\n\n**When:** In your global JS error / native crash handler, buffered and flushed on next launch (a crashing app may not flush immediately).\n\n> `stackTrace`, `appVersion`, `deviceModel`, `fatal` have no dedicated columns — nest them under `properties`. Use `errorMessage` for the top-line message.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `screenName`, `errorMessage`, `properties`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Error Log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"error\",\n      \"eventName\": \"Handled Error\",\n      \"screenName\": \"MarketPricesScreen\",\n      \"errorMessage\": \"Network request failed\",\n      \"properties\": { \"code\": \"ERR_NETWORK\" },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** Records a non-fatal handled error (distinct from `crash`).\n\n**When:** In catch blocks / error boundaries for recoverable failures.\n\n**Mandatory:** `eventId`, `sessionId`, `userId`, `eventType`, `eventName`. **Optional:** `screenName`, `errorMessage`, `properties`, `timestamp`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Batch – Multiple Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/ingest/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ingest",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"events\": [\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"navigation\",\n      \"eventName\": \"Navigate\",\n      \"screenName\": \"MarketPricesScreen\",\n      \"properties\": { \"from\": \"HomeScreen\" },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    },\n    {\n      \"eventId\": \"{{$guid}}\",\n      \"sessionId\": \"{{session_id}}\",\n      \"userId\": \"{{user_id}}\",\n      \"eventType\": \"button_click\",\n      \"eventName\": \"Filter Applied\",\n      \"screenName\": \"MarketPricesScreen\",\n      \"properties\": { \"crop\": \"wheat\" },\n      \"timestamp\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
+            },
+            "description": "**Why:** The recommended production pattern — buffer events on-device and flush **1–50** per request to minimize network + stay under the rate limit.\n\n**Duplicates:** Any event whose `eventId` was already stored is skipped; the rest still insert. Response `inserted` may be less than `total`.\n\n**Response:** `201` → `{ inserted, total }`."
+          },
+          "response": [
+            {
+              "name": "201 Created (partial dedupe)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/events",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "events"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ }"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": { \"inserted\": 2, \"total\": 2 }\n}"
+            },
+            {
+              "name": "400 Validation Error (empty array)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/events",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "events"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"events\": [] }"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"events: events must be an array of 1–50 items\"\n  }\n}"
+            },
+            {
+              "name": "429 Rate Limit Exceeded",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/ingest/events",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "ingest",
+                    "events"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ }"
+                }
+              },
+              "status": "Too Many Requests",
+              "code": 429,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"RATE_LIMIT_EXCEEDED\",\n    \"message\": \"Too many requests, please slow down\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
